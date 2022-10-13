@@ -9,5 +9,5 @@ edition = "2021"
 zmq = "0.9"
 
 [[bin]]
-name = "structs"
-path = "src/structs.rs"
+name = "pub"
+path = "src/pub.rs"
