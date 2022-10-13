@@ -1,7 +1,7 @@
 #![crate_name = "pub"]
 
 // Pub's TODO:
-// - [ ] Handling Errors instead of panicking
+// - [ ] Handling Errors instead of panicking (WIP)
 // - [ ] Define how we will connect to the ENDPOINT
 // - [ ] Define the protocol with the other parts
 //  - [ ] Define how the ack will work here in the pub
@@ -12,6 +12,8 @@ use std::env;
 #[derive(Debug)]
 enum PubError {
     InvalidTopic,
+    EmptyReply,
+    MalformedReply,
     OffilneBroker,
 }
 
@@ -52,12 +54,16 @@ fn main() -> Result<(), PubError> {
 
         let mut reply = zmq::Message::new();
         if items[0].is_readable() && publisher.recv(&mut reply, 0).is_ok() {
-            let recv_sequence = reply
-                .as_str()
-                .unwrap()
-                .parse::<u64>()
-                .unwrap();
-
+            
+            let recv_reply = match reply.as_str() {
+                Some(rep) => rep,
+                None => return Err(PubError::EmptyReply),
+            };
+            let recv_sequence = match recv_reply.parse::<u64>() {
+                Ok(seq) => seq,
+                Err(_) => return Err(PubError::MalformedReply),
+            };
+            
             if recv_sequence == sequence {
                 println!("I: Message delivered to the Broker");
                 break;
