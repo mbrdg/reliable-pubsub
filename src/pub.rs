@@ -7,81 +7,85 @@
 //  - [ ] Define how the ack will work here in the pub
 // - [ ] Define how the service will be instantiated
 
+use zmq;
+use rand::prelude::*;
 use std::env;
+
 
 #[derive(Debug)]
 enum PubError {
-    InvalidTopic,
+    InvalidArgs,
     EmptyReply,
     MalformedReply,
-    OffilneBroker,
+    InvalidNonce,
+    OfflineBroker,
 }
 
 fn main() -> Result<(), PubError> {
     const REQ_TIMEOUT: i64 = 2500;
-    const REQ_RETRIES: u8 = 3;
+    const REQ_RETRIES: i32 = 3;
     const ENDPOINT: &str = "tcp://localhost:5556";
-
+    
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: pub <topic>");
-        return Err(PubError::InvalidTopic);
+    if args.len() != 3 {
+        eprintln!("Usage: pub <topic> <message>");
+        return Err(PubError::InvalidArgs);
     }
-
+    
+    let mut rng = rand::thread_rng();
     let ctx = zmq::Context::new();
+    
+    let topic = &args[1];
+    let message = &args[2];
+    let nonce: u64 = rng.gen();
 
-    let publisher = ctx.socket(zmq::REQ).unwrap();
-    assert!(publisher.connect(ENDPOINT).is_ok());
-
-    // Need to know how we will generate sequence numbers...
-    // UUIDs, maybeee?
-    let mut sequence: u64 = 0;
-    let mut retries_left: u8 = REQ_RETRIES;
-
+    let mut retries_left = REQ_RETRIES;
+    
     while retries_left > 0 {
-        let topic = &args[1];
-        sequence += 1;
+        let publisher = ctx.socket(zmq::REQ).unwrap();
+        publisher.set_linger(0).unwrap();
+        assert!(publisher.connect(ENDPOINT).is_ok());
+        println!("Info: Connecting to the Broker");
 
-        let request = zmq::Message::from(
-            &format!("{topic} {sequence}")
-        );
-        publisher.send(request, 0).unwrap();
+        assert!(publisher.send_multipart(&[topic, message, &nonce.to_string()], 0).is_ok());
 
         let mut items = [
             publisher.as_poll_item(zmq::POLLIN)
         ];
+
         zmq::poll(&mut items, REQ_TIMEOUT).unwrap();
 
         let mut reply = zmq::Message::new();
         if items[0].is_readable() && publisher.recv(&mut reply, 0).is_ok() {
-            
+
+            // Maybe we should retry, here...
             let recv_reply = match reply.as_str() {
                 Some(rep) => rep,
                 None => return Err(PubError::EmptyReply),
             };
-            let recv_sequence = match recv_reply.parse::<u64>() {
+            let recv_nonce = match recv_reply.parse::<u64>() {
                 Ok(seq) => seq,
                 Err(_) => return Err(PubError::MalformedReply),
             };
             
-            if recv_sequence == sequence {
-                println!("I: Message delivered to the Broker");
+            if nonce != recv_nonce {
+                return Err(PubError::InvalidNonce);
+            } else {
+                println!("Info: Message delivered to the Broker");
                 break;
             }
 
         } else {
+            assert!(publisher.disconnect(ENDPOINT).is_ok());
             retries_left -= 1;
 
-            if retries_left > 0 {
-                println!("W: No response from the Broker, retrying...");
-                publisher.disconnect(ENDPOINT).unwrap();
-                println!("I: Reconnecting to the Broker");
-                publisher.connect(ENDPOINT).unwrap();
+            if retries_left == 0 {
+                return Err(PubError::OfflineBroker);
             } else {
-                return Err(PubError::OffilneBroker);
+                println!("Warn: No response from the Broker, retrying...");
             }
         }
     }
 
-    return Ok(());
+    Ok(())
 }
