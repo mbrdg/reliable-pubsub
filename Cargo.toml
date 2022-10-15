@@ -11,3 +11,7 @@ zmq = "0.9"
 [[bin]]
 name = "pub"
 path = "src/pub.rs"
+
+[[bin]]
+name = "sub"
+path = "src/sub.rs"
