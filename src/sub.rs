@@ -6,6 +6,7 @@ const REQ_TIMEOUT: i64 = 2500;
 
 use rand::prelude::*;
 use std::env;
+use uuid::Uuid;
 
 #[derive(Debug)]
 enum SubError {
@@ -18,6 +19,9 @@ enum SubError {
 }
 
 fn main() -> Result<(), SubError> {
+
+    let id = Uuid::new_v4();
+
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
         eprintln!("Usage: sub subscribe|unsubscribe|get <topic>");
@@ -31,9 +35,9 @@ fn main() -> Result<(), SubError> {
 
     match args.get(1) {
         Some(method) => match method.as_str() {
-            "subscribe" => subscribe(topic),
-            "unsubscribe" => unsubscribe(topic),
-            "get" => get(topic),
+            "subscribe" => subscribe(topic, id.to_string()),
+            "unsubscribe" => unsubscribe(topic, id.to_string()),
+            "get" => get(topic, id.to_string()),
             _ => return Err(SubError::InvalidMethodType),
         },
         None => return Err(SubError::InvalidArgCount),
@@ -41,23 +45,23 @@ fn main() -> Result<(), SubError> {
 }
 
 // TODO: Subscribe with a UUID
-fn subscribe(topic: String) -> Result<(), SubError> {
-    println!("Subscribing to topic {}", topic);
-    send_message(String::from("subscribe"), topic)
+fn subscribe(topic: String, uuid: String) -> Result<(), SubError> {
+    println!("Subscribing to topic {} as uuid {}", topic, uuid);
+    send_message(String::from("subscribe"), topic, uuid)
 }
 
 // TODO: Unsubscribe using a UUID
-fn unsubscribe(topic: String) -> Result<(), SubError> {
-    println!("Unsubscribing from topic {}", topic);
-    send_message(String::from("unsubscribe"), topic)
+fn unsubscribe(topic: String, uuid: String) -> Result<(), SubError> {
+    println!("Unsubscribing from topic {} as uuid {}", topic, uuid);
+    send_message(String::from("unsubscribe"), topic, uuid)
 }
 // TODO: Make get retry until it gets the response
-fn get(topic: String) -> Result<(), SubError> {
+fn get(topic: String, uuid: String) -> Result<(), SubError> {
     println!("Getting from topic {}", topic);
-    send_message(String::from("get"), topic)
+    send_message(String::from("get"), topic, uuid)
 }
 
-fn send_message(method: String, topic: String) -> Result<(), SubError> {
+fn send_message(method: String, topic: String, uuid: String) -> Result<(), SubError> {
     let ctx = zmq::Context::new();
     let nonce: u64 = rand::thread_rng().gen();
     let mut retries = REQ_RETRIES;
@@ -69,12 +73,12 @@ fn send_message(method: String, topic: String) -> Result<(), SubError> {
         println!("Subscriber is connected to the broker");
 
         assert!(subscriber
-            .send_multipart(&[method.to_owned(), topic.to_owned(), nonce.to_string()], 0)
+            .send_multipart(&[uuid.to_owned(), method.to_owned(), topic.to_owned(), nonce.to_string()], 0)
             .is_ok());
 
         println!(
-            "Sent message {} to topic {} with nonce {}",
-            method, topic, nonce
+            "{} Sent message {} to topic {} with nonce {}",
+            uuid, method, topic, nonce
         );
 
         let mut items = [subscriber.as_poll_item(zmq::POLLIN)];
