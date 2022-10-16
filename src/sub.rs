@@ -40,15 +40,18 @@ fn main() -> Result<(), SubError> {
     }
 }
 
+// TODO: Subscribe with a UUID
 fn subscribe(topic: String) -> Result<(), SubError> {
     println!("Subscribing to topic {}", topic);
     send_message(String::from("subscribe"), topic)
 }
 
+// TODO: Unsubscribe using a UUID
 fn unsubscribe(topic: String) -> Result<(), SubError> {
     println!("Unsubscribing from topic {}", topic);
     send_message(String::from("unsubscribe"), topic)
 }
+// TODO: Make get retry until it gets the response
 fn get(topic: String) -> Result<(), SubError> {
     println!("Getting from topic {}", topic);
     send_message(String::from("get"), topic)
@@ -108,5 +111,6 @@ fn send_message(method: String, topic: String) -> Result<(), SubError> {
         }
     }
 
+    // TODO: Make Ok return with the reply message
     Ok(())
 }
