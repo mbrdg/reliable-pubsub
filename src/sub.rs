@@ -1,6 +1,7 @@
 #![crate_name = "sub"]
 
 const BROKER_ENDPOINT: &str = "tcp://localhost:5557";
+
 use std::env;
 
 #[derive(Debug)]
@@ -21,8 +22,6 @@ fn main() -> Result<(), SubError> {
         None => return Err(SubError::InvalidArgCount),
     };
 
-    println!("The topic is {}", topic);
-
     match args.get(1) {
         Some(method) => match method.as_str() {
             "subscribe" => subscribe(topic),
@@ -35,21 +34,22 @@ fn main() -> Result<(), SubError> {
 }
 
 fn subscribe(topic: String) -> Result<(), SubError> {
-    println!("It's a subscribe");
-
     let ctx = zmq::Context::new();
     let subscriber = ctx.socket(zmq::REQ).unwrap();
 
     assert!(subscriber.connect(BROKER_ENDPOINT).is_ok());
 
-    return Err(SubError::InvalidArgCount);
+    println!("Subscriber is connected to the broker");
+    println!("Subscribing to topic {}", topic);
+
+    return Ok(());
 }
 
 fn unsubscribe(topic: String) -> Result<(), SubError> {
-    println!("It's an unsubscribe");
+    println!("Unsubscribing from topic {}", topic);
     unimplemented!();
 }
 fn get(topic: String) -> Result<(), SubError> {
-    println!("It's a get");
+    println!("Getting from topic {}", topic);
     unimplemented!();
 }
