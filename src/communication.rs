@@ -7,7 +7,12 @@ const REQ_RETRIES: u8 = 3;
 const REQ_TIMEOUT: i64 = 2500;
 const BROKER_ENDPOINT: &str = "tcp://localhost:5557";
 
-pub fn send_message(method: String, topic: String, uuid: String) -> Result<(), PubSubError> {
+pub fn send_message(
+    method: String,
+    topic: String,
+    message: String,
+    uuid: String,
+) -> Result<(), PubSubError> {
     let ctx = zmq::Context::new();
     let nonce: u64 = rand::thread_rng().gen();
     let mut retries = REQ_RETRIES;
@@ -18,17 +23,32 @@ pub fn send_message(method: String, topic: String, uuid: String) -> Result<(), P
         assert!(subscriber.connect(BROKER_ENDPOINT).is_ok());
         println!("Subscriber is connected to the broker");
 
-        assert!(subscriber
-            .send_multipart(
-                &[
-                    uuid.to_owned(),
-                    method.to_owned(),
-                    topic.to_owned(),
-                    nonce.to_string()
-                ],
-                0
-            )
-            .is_ok());
+        if message.is_empty() {
+            assert!(subscriber
+                .send_multipart(
+                    &[
+                        uuid.to_owned(),
+                        method.to_owned(),
+                        topic.to_owned(),
+                        nonce.to_string()
+                    ],
+                    0
+                )
+                .is_ok());
+        } else {
+            assert!(subscriber
+                .send_multipart(
+                    &[
+                        uuid.to_owned(),
+                        method.to_owned(),
+                        topic.to_owned(),
+                        message.to_owned(),
+                        nonce.to_string()
+                    ],
+                    0
+                )
+                .is_ok());
+        }
 
         println!(
             "{} Sent message {} to topic {} with nonce {}",

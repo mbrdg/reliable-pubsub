@@ -36,16 +36,16 @@ fn main() -> Result<(), PubSubError> {
 // TODO: Subscribe with a UUID
 fn subscribe(topic: String, uuid: String) -> Result<(), PubSubError> {
     println!("Subscribing to topic {} as uuid {}", topic, uuid);
-    send_message(String::from("subscribe"), topic, uuid)
+    send_message(String::from("subscribe"), topic, String::new(), uuid)
 }
 
 // TODO: Unsubscribe using a UUID
 fn unsubscribe(topic: String, uuid: String) -> Result<(), PubSubError> {
     println!("Unsubscribing from topic {} as uuid {}", topic, uuid);
-    send_message(String::from("unsubscribe"), topic, uuid)
+    send_message(String::from("unsubscribe"), topic, String::new(), uuid)
 }
 // TODO: Make get retry until it gets the response
 fn get(topic: String, uuid: String) -> Result<(), PubSubError> {
     println!("Getting from topic {}", topic);
-    send_message(String::from("get"), topic, uuid)
+    send_message(String::from("get"), topic, String::new(), uuid)
 }
