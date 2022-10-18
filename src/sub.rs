@@ -48,7 +48,7 @@ const GET_ACK_LEN: usize = 2;
 fn main() -> Result<(), SubError> {
 
     let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
+    if args.len() != 4 {
         eprintln!("Usage: sub <id> <subscribe | unsubscribe | get> <topic>");
         return Err(SubError::InvalidArgCount);
     }
