@@ -16,3 +16,7 @@ path = "src/pub.rs"
 [[bin]]
 name = "broker"
 path = "src/broker.rs"
+
+[[bin]]
+name = "sub"
+path = "src/sub.rs"
