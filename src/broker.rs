@@ -1,17 +1,15 @@
 #![crate_name = "broker"]
 
-// Broker's TODO:
-// - [ ] Define how to dump the current state of the Broker
-
 use std::collections::HashMap;
+use std::fs;
+use serde::{Serialize, Deserialize};
 
 
 type Topic = String;
 type Message = String;
 type Subscriber = String;
 
-
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 struct UndeliveredMessage {
     nonce: u64,
     body: Message,
@@ -19,6 +17,15 @@ struct UndeliveredMessage {
 }
 
 fn main() {
+
+    let data: String = fs::read_to_string("subscribers.json").unwrap_or_default();
+    let mut subscribers: HashMap<Topic, Vec<Subscriber>> =
+        serde_json::from_str(&data).unwrap_or_default();
+
+    let data: String = fs::read_to_string("messages.json").unwrap_or_default();
+    let mut messages: HashMap<Topic, Vec<UndeliveredMessage>> =
+        serde_json::from_str(&data).unwrap_or_default();
+
     let ctx = zmq::Context::new();
 
     let backend = ctx.socket(zmq::REP).unwrap();
@@ -29,9 +36,6 @@ fn main() {
     assert!(frontend.bind("tcp://*:5557").is_ok());
     assert!(gc.bind("tcp://*:5558").is_ok());
 
-    let mut subscribers: HashMap<Topic, Vec<Subscriber>> = HashMap::new();
-    let mut messages: HashMap<Topic, Vec<UndeliveredMessage>> = HashMap::new();
-
     let mut items = [
         backend.as_poll_item(zmq::POLLIN),
         frontend.as_poll_item(zmq::POLLIN),
@@ -39,6 +43,9 @@ fn main() {
     ];
 
     loop {
+        let mut subscribers_has_changes = false;
+        let mut messages_has_changes = false;
+
         zmq::poll(&mut items, -1).unwrap();
 
         if items[0].is_readable() {
@@ -72,7 +79,10 @@ fn main() {
             match messages.get_mut(&topic) {
                 Some(v) => v.push(undelivered),
                 None => match messages.insert(topic, vec![undelivered]) {
-                    None => assert!(backend.send(ack, 0).is_ok()),
+                    None => {
+                        messages_has_changes = true;
+                        assert!(backend.send(ack, 0).is_ok())
+                    },
                     Some(_) => unreachable!("Creation of a topic retrieved a message"),
                 }
             };
@@ -90,11 +100,18 @@ fn main() {
                 "subscribe" => {
 
                     let ack = zmq::Message::from(&id);
+                    let topics = subscribers.len();
 
                     subscribers
                         .entry(topic)
-                        .and_modify(|subs| subs.push(id.to_owned()))
+                        .and_modify(|subs|
+                            if !subs.contains(&id) {
+                                subs.push(id.to_owned());
+                                subscribers_has_changes = true;
+                            })
                         .or_insert_with(|| vec![id]);
+
+                    subscribers_has_changes = subscribers_has_changes || topics < subscribers.len();
 
                     assert!(frontend.send(ack, 0).is_ok());
                 },
@@ -106,12 +123,17 @@ fn main() {
                     if let Some(s) = subscribers.get_mut(&topic) {
                         if let Some(i) = s.iter().position(|s| *s == id) {
                             s.remove(i);
+                            subscribers_has_changes = true;
                         }
                     }
 
                     for m in messages.values_mut() {
                         for msg in m {
+                            let before_retain_len = msg.subscribers.len();
                             msg.subscribers.retain(|sub| *sub != id);
+                            if before_retain_len > msg.subscribers.len() {
+                                subscribers_has_changes = true;
+                            }
                         }
                     }
 
@@ -185,13 +207,37 @@ fn main() {
 
             if let Some(i) = s.iter().position(|s| *s == id) {
                 s.remove(i);
+                messages_has_changes = true;
             };
 
             let ack = zmq::Message::from(&id);
             assert!(gc.send(ack, 0).is_ok());
         }
 
+        let before_retain_len = messages.len();
         messages.retain(|_, undelivered| !undelivered.is_empty());
+        if before_retain_len > messages.len() {
+            messages_has_changes = true;
+        }
+
+        let before_retain_len = subscribers.len();
         subscribers.retain(|_, subs| !subs.is_empty());
+        if before_retain_len > subscribers.len() {
+            subscribers_has_changes = true;
+        }
+
+        if subscribers_has_changes {
+            serde_json::to_writer(
+                &fs::File::create("subscribers.json").unwrap(),
+                &subscribers
+            ).unwrap();
+        }
+
+        if messages_has_changes {
+            serde_json::to_writer(
+                &fs::File::create("messages.json").unwrap(),
+                &messages
+            ).unwrap();
+        }
     }
 }
