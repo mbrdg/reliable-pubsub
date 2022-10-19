@@ -1,15 +1,7 @@
 #![crate_name = "pub"]
 
-// Pub's TODO:
-// - [ ] Handling Errors instead of panicking (WIP)
-// - [ ] Define how we will connect to the ENDPOINT
-// - [ ] Define the protocol with the other parts
-//  - [ ] Define how the ack will work here in the pub
-// - [ ] Define how the service will be instantiated
-
 use rand::prelude::*;
 use std::env;
-use zmq;
 
 #[derive(Debug)]
 enum PubError {
