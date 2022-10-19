@@ -1,14 +1,13 @@
 #![crate_name = "sub"]
 
 use std::{env, fmt};
-use zmq;
 
 #[derive(Debug)]
 enum SubError {
     InvalidArgCount,
     InvalidOperation,
-    MalformedReply,
     InvalidACK,
+    InvalidStateBroker,
     UnreachableBroker,
 }
 
@@ -34,16 +33,16 @@ type Topic = String;
 type Nonce = String;
 
 enum SubMessage<'a> {
-    Issue(&'a Id, SubOperation, &'a Topic),
+    Trigger(&'a Id, SubOperation, &'a Topic),
     Ack(&'a Nonce),
 }
 
 const REQ_RETRIES: u8 = 3;
 const REQ_TIMEOUT: i64 = 2500;
-const BROKER: &str = "tcp://localhost:5557";
 
-const ACK_LEN: usize = 1;
-const GET_ACK_LEN: usize = 2;
+const BROKER: &str = "tcp://localhost:5557";
+const BROKER_GC: &str = "tcp://localhost:5558";
+
 
 fn main() -> Result<(), SubError> {
 
@@ -64,7 +63,7 @@ fn main() -> Result<(), SubError> {
     };
     let topic = &args[3];
 
-    if let Some(nonce) = lazy_pirate(&ctx, SubMessage::Issue(id, operation, topic)).unwrap() {
+    if let Some(nonce) = lazy_pirate(&ctx, SubMessage::Trigger(id, operation, topic)).unwrap() {
         if let SubOperation::Get = operation {
             lazy_pirate(&ctx, SubMessage::Ack(&nonce)).unwrap();
         };
@@ -74,10 +73,8 @@ fn main() -> Result<(), SubError> {
 }
 
 
-fn check_ack(rep: &Vec<Vec<u8>>, expected_size: usize, token: &Id) -> Result<String, SubError> {
-    if rep.len() != expected_size {
-        return Err(SubError::MalformedReply);
-    }
+fn check_ack(rep: &Vec<Vec<u8>>, envlp_size: usize, token: &Id) -> Result<String, SubError> {
+    assert_eq!(rep.len(), envlp_size, "Malformed Reply");
 
     let val = String::from_utf8_lossy(&rep[0]);
     if val != *token { Ok(val.to_string()) } else { Err(SubError::InvalidACK) }
@@ -85,19 +82,25 @@ fn check_ack(rep: &Vec<Vec<u8>>, expected_size: usize, token: &Id) -> Result<Str
 
 fn lazy_pirate(ctx: &zmq::Context, msg: SubMessage) -> Result<Option<Nonce>, SubError> {
     let mut retries_left = REQ_RETRIES;
+
     loop {
         let subscriber = ctx.socket(zmq::REQ).unwrap();
         subscriber.set_linger(0).unwrap();
-        assert!(subscriber.connect(BROKER).is_ok());
-        println!("Info: Connection to the Broker");
 
+        // Sends the request
         match msg {
-            SubMessage::Issue(id, op, t) => {
+            SubMessage::Trigger(id, op, t) => {
+                assert!(subscriber.connect(BROKER).is_ok());
+                println!("Info: Connection to the Broker");
+
                 let op_str_repr = format!("{:?}", op);
                 assert!(subscriber.send_multipart(&[id, &op_str_repr, t], 0).is_ok());
             },
             SubMessage::Ack(ack) => {
-                assert!(subscriber.send(ack, 0).is_ok());
+                assert!(subscriber.connect(BROKER_GC).is_ok());
+                println!("Info: Connection to the Broker");
+
+                assert!(subscriber.send(&ack, 0).is_ok());
             },
         };
 
@@ -108,22 +111,30 @@ fn lazy_pirate(ctx: &zmq::Context, msg: SubMessage) -> Result<Option<Nonce>, Sub
         zmq::poll(&mut items, REQ_TIMEOUT).unwrap();
 
         if items[0].is_readable() {
-
             let reply = subscriber.recv_multipart(0).unwrap();
+
             match msg {
-                SubMessage::Issue(id, op, _t) => {
+                SubMessage::Trigger(id, op, _t) => {
+
                     match op {
                         SubOperation::Subscribe | SubOperation::Unsubscribe => {
-                            match check_ack(&reply, ACK_LEN, id) {
+                            match check_ack(&reply, 1, id) {
                                 Ok(_) => return Ok(None),
                                 Err(e) => return Err(e),
                             }
                         },
+
                         SubOperation::Get => {
-                            match check_ack(&reply, GET_ACK_LEN, id) {
+                            match check_ack(&reply, 2, id) {
                                 Ok(nonce) => {
                                     let body = String::from_utf8_lossy(&reply[1]);
-                                    println!("{}", body);
+
+                                    if nonce == "-1" {
+                                        println!("Error: {}", body);
+                                        return Err(SubError::InvalidStateBroker);
+                                    }
+
+                                    println!("Message: {}", body);
                                     return Ok(Some(nonce));
                                 },
                                 Err(e) => return Err(e),
@@ -131,9 +142,16 @@ fn lazy_pirate(ctx: &zmq::Context, msg: SubMessage) -> Result<Option<Nonce>, Sub
                         },
                     };
                 },
+
                 SubMessage::Ack(ack) => {
-                    match check_ack(&reply, ACK_LEN, ack) {
-                        Ok(_) => return Ok(None),
+                    match check_ack(&reply, 1, ack) {
+                        Ok(nonce) => {
+                            if nonce == "-1" {
+                                println!("Error: Invalid nonce");
+                                return Err(SubError::InvalidStateBroker);
+                            }
+                            return Ok(None);
+                        },
                         Err(e) => return Err(e),
                     }
                 }
