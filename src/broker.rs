@@ -174,7 +174,12 @@ fn main() {
                     };
 
                     let mut has_message_to_send = false;
-                    let mut next: &UndeliveredMessage = &UndeliveredMessage { nonce: 0, body: "".to_string(), subscribers: vec![] };
+                    let mut next: &UndeliveredMessage = &UndeliveredMessage {
+                        nonce: 0,
+                        body: "".to_string(),
+                        subscribers: vec![]
+                    };
+
                     for msg in undelivered {
                         if msg.subscribers.contains(&id) {
                             has_message_to_send = true;
@@ -182,7 +187,7 @@ fn main() {
                             break;
                         }
                     }
-                    
+
                     if !has_message_to_send {
                         assert!(frontend.send_multipart(&[&id, "-1", "No new messages to send"], 0).is_ok());
                         continue;
@@ -198,12 +203,11 @@ fn main() {
 
         if items[2].is_readable() {
             let frames = gc.recv_multipart(0).unwrap();
-            println!("{:?}", frames);
             assert_eq!(frames.len(), 3);
 
             let id = String::from_utf8(frames[0].to_owned()).unwrap();
             let _nonce = String::from_utf8(frames[1].to_owned()).unwrap()
-            .parse::<u64>().unwrap();
+                .parse::<u64>().unwrap();
             let topic = String::from_utf8(frames[2].to_owned()).unwrap();
 
             let undelivered = match messages.get_mut(&topic) {
@@ -233,8 +237,8 @@ fn main() {
         messages.retain(|_, undelivered| {
             undelivered.retain(|u| !u.subscribers.is_empty());
             !undelivered.is_empty()
-        }
-        );
+        });
+
         if before_retain_len > messages.len() {
             messages_has_changes = true;
         }
@@ -251,7 +255,7 @@ fn main() {
                 &subscribers
             ).unwrap();
         }
-        
+
         if messages_has_changes {
             serde_json::to_writer(
                 &fs::File::create("messages.json").unwrap(),

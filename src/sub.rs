@@ -68,6 +68,7 @@ fn main() -> Result<(), SubError> {
         Ok(None) => return Ok(()),
         Err(e) => return Err(e),
     };
+
     if let SubOperation::Get = operation {
         match lazy_pirate(&ctx, BROKER_GC, SubMessage::Ack(id, &nonce, topic)) {
             Ok(None) => (),
@@ -86,6 +87,7 @@ fn check_ack(rep: &Vec<Vec<u8>>, envlp_size: usize, token: &Id) -> Result<String
     let val = String::from_utf8_lossy(&rep[0]);
     if val == *token { Ok(val.to_string()) } else { Err(SubError::InvalidACK) }
 }
+
 
 fn lazy_pirate(ctx: &zmq::Context, endpoint: &str,msg: SubMessage) -> Result<Option<Nonce>, SubError> {
     let mut retries_left = REQ_RETRIES;
