@@ -77,15 +77,20 @@ fn main() {
             };
 
             match messages.get_mut(&topic) {
-                Some(v) => v.push(undelivered),
+                Some(v) => {
+                    if !v.contains(&undelivered) {
+                        v.push(undelivered);
+                        messages_has_changes = true;
+                    }
+                }
                 None => match messages.insert(topic, vec![undelivered]) {
                     None => {
                         messages_has_changes = true;
-                        assert!(backend.send(ack, 0).is_ok())
                     },
                     Some(_) => unreachable!("Creation of a topic retrieved a message"),
                 }
             };
+            assert!(backend.send(ack, 0).is_ok())
         }
 
         if items[1].is_readable() {
@@ -97,7 +102,7 @@ fn main() {
             let topic = String::from_utf8(frames[2].to_owned()).unwrap();
 
             match operation {
-                "subscribe" => {
+                "Subscribe" => {
 
                     let ack = zmq::Message::from(&id);
                     let topics = subscribers.len();
@@ -116,7 +121,7 @@ fn main() {
                     assert!(frontend.send(ack, 0).is_ok());
                 },
 
-                "unsubscribe" => {
+                "Unsubscribe" => {
 
                     let ack = zmq::Message::from(&id);
 
@@ -140,58 +145,66 @@ fn main() {
                     assert!(frontend.send(ack, 0).is_ok());
                 },
 
-                "get" => {
+                "Get" => {
 
                     if !subscribers.contains_key(&topic) {
-                        assert!(frontend.send_multipart(&["-1", "Topic does not exist"], 0).is_ok());
+                        assert!(frontend.send_multipart(&[&id, "-1", "Topic does not exist"], 0).is_ok());
                         continue;
                     }
 
                     let subs = match subscribers.get(&topic) {
                         Some(s) => s,
                         None => {
-                            assert!(frontend.send_multipart(&["-1", "Topic does not exist"], 0).is_ok());
+                            assert!(frontend.send_multipart(&[&id, "-1", "Topic does not exist"], 0).is_ok());
                             continue;
                         },
                     };
 
                     if !subs.contains(&id) {
-                        assert!(frontend.send_multipart(&["-1", "Not subscribed"], 0).is_ok());
+                        assert!(frontend.send_multipart(&[&id, "-1", "Not subscribed"], 0).is_ok());
                         continue;
                     }
 
                     let undelivered = match messages.get(&topic) {
                         Some(u) => u,
                         None => {
-                            assert!(frontend.send_multipart(&["-1", "No new messages"], 0).is_ok());
+                            assert!(frontend.send_multipart(&[&id, "-1", "No new messages"], 0).is_ok());
                             continue;
                         },
                     };
 
-                    let next = match undelivered.first() {
-                        Some(m) => m,
-                        None => {
-                            assert!(frontend.send_multipart(&["-1", "No new messages"], 0).is_ok());
-                            continue;
-                        },
-                    };
+                    let mut has_message_to_send = false;
+                    let mut next: &UndeliveredMessage = &UndeliveredMessage { nonce: 0, body: "".to_string(), subscribers: vec![] };
+                    for msg in undelivered {
+                        if msg.subscribers.contains(&id) {
+                            has_message_to_send = true;
+                            next = msg;
+                            break;
+                        }
+                    }
+                    
+                    if !has_message_to_send {
+                        assert!(frontend.send_multipart(&[&id, "-1", "No new messages to send"], 0).is_ok());
+                        continue;
+                    }
 
                     let n = &next.nonce.to_string()[..];
                     let b = &next.body[..];
-                    assert!(frontend.send_multipart(&[n, b], 0).is_ok());
+                    assert!(frontend.send_multipart(&[&id, n, b], 0).is_ok());
                 },
-                _ => assert!(frontend.send_multipart(&["-1", "Unkown Operation"], 0).is_ok()),
+                _ => assert!(frontend.send_multipart(&[&id, "-1", "Unkown Operation"], 0).is_ok()),
             }
         }
 
         if items[2].is_readable() {
             let frames = gc.recv_multipart(0).unwrap();
+            println!("{:?}", frames);
             assert_eq!(frames.len(), 3);
 
             let id = String::from_utf8(frames[0].to_owned()).unwrap();
-            let topic = String::from_utf8(frames[1].to_owned()).unwrap();
-            let _nonce = String::from_utf8(frames[2].to_owned()).unwrap()
-                .parse::<u64>().unwrap();
+            let _nonce = String::from_utf8(frames[1].to_owned()).unwrap()
+            .parse::<u64>().unwrap();
+            let topic = String::from_utf8(frames[2].to_owned()).unwrap();
 
             let undelivered = match messages.get_mut(&topic) {
                 Some(v) => v,
@@ -217,7 +230,11 @@ fn main() {
         }
 
         let before_retain_len = messages.len();
-        messages.retain(|_, undelivered| !undelivered.is_empty());
+        messages.retain(|_, undelivered| {
+            undelivered.retain(|u| !u.subscribers.is_empty());
+            !undelivered.is_empty()
+        }
+        );
         if before_retain_len > messages.len() {
             messages_has_changes = true;
         }
@@ -234,7 +251,7 @@ fn main() {
                 &subscribers
             ).unwrap();
         }
-
+        
         if messages_has_changes {
             serde_json::to_writer(
                 &fs::File::create("messages.json").unwrap(),
