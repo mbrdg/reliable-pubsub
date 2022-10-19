@@ -176,7 +176,9 @@ fn main() {
                         },
                     };
 
-                    assert!(frontend.send_multipart(&[&next.nonce.to_string(), &next.body], 0).is_ok());
+                    let n = &next.nonce.to_string()[..];
+                    let b = &next.body[..];
+                    assert!(frontend.send_multipart(&[n, b], 0).is_ok());
                 },
                 _ => assert!(frontend.send_multipart(&["-1", "Unkown Operation"], 0).is_ok()),
             }
